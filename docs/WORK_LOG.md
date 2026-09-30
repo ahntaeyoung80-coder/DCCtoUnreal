@@ -4,6 +4,30 @@
 
 ## 2026-09-30
 
+### Content 경로 정리 및 그래프 자동화 보류
+
+- 사용자가 `/Game/Imports/<BundleName>/{Meshes,Materials,Textures}`와 `/Game/Materials/Master/MM_MasterSurface` 구조를 승인함. 생성기와 임포터, 안내 문서 경로를 이에 맞춤.
+- 그래프 자동 재구성 초안은 실제 Unreal Editor에서 제대로 작동하지 않았고 기존 그래프 연결을 보존하지 못함. 앞서 구현한 백업 후 삭제·재구성 방식은 사용하지 않기로 함.
+- 생성기는 기존 마스터 머티리얼 그래프를 보존하도록 수정. 기존 그래프를 사용자가 직접 구성한 뒤 검토를 거쳐서만 자동화하기로 함.
+- 구 API 문서상 노드 연결·재컴파일 함수는 있으나, 문서 확인만으로 실제 그래프 연결 성공을 검증할 수 없음을 기록. UE 5.8 실제 실행 검증은 미완료.
+
+### 기본 템플릿 생성기 구현 초안
+
+- 사용자가 구현을 요청했고 `.upack` 제작은 별도 담당하기로 함. 생성기는 기존 Unreal 프로젝트에서 실행.
+- `unreal_dcc_material_builder.py`를 `unreal_dcc_basic_template_generator.py`로 교체해 `/Game/DCC/Shared/Materials/MM_MasterSurface` 및 기본 폴더를 생성하도록 함.
+- 마스터 머티리얼은 Opaque + Default Lit으로 구성. Base Color, Normal, 개별 AO/Roughness/Metallic, ORM Pack, 선택형 Emissive Color/Mask 입력을 준비하고 Skin SSS/Opacity는 제외.
+- 임포터 경로를 `/Game/DCC/Imports/<BundleName>/{Meshes,Materials,Textures}`로 맞추고 텍스처 이름을 `T_<Material>_<Role>`로 정규화하도록 수정.
+- 소스 우선순위를 ORM Pack → Substance PBR → Blender 이미지 → Blender scalar → 마스터 기본값으로 반영. Blender 익스포터 JSON에 Emission Color/Strength 기록을 추가.
+- Unreal Editor에서 실행 검증하지 않음. Static Switch API, Material Expression 생성, 노멀 그린 채널 방향은 UE 5.8 프로젝트에서 확인 필요.
+- 같은 원본 이미지가 서로 다른 텍스처 역할에 쓰일 경우 sRGB/압축 설정이 충돌하지 않도록 임포터에서 역할별 텍스처 에셋을 만들도록 보완.
+
+### Unreal Content 계층구조 설계 논의
+
+- 여러 프로젝트에서 공용 에셋을 공유하는 플러그인 구조는 현재 목표에 시기상조로 보고, 우선 단일 프로젝트 안의 Content 구조를 설계하기로 함. Game Feature Plugin은 기능을 켜고 끄는 요구가 있을 때 재검토.
+- 한 번의 내보내기 묶음 아래에서 에셋 종류별로 파일을 나누고, 같은 묶음의 메시·머티리얼·텍스처는 각각 한 번만 보관하는 혼합 구조를 초안으로 정리: `/Game/DCC/Imports/<BundleName>/{Meshes,Materials,Textures}`.
+- 배경과 캐릭터를 별도 최상위 폴더 규칙으로 나누지 않기로 함. 메시 에셋은 `Meshes/` 바로 아래에 두기로 함.
+- 폴더 계층구조는 아직 전체 확정 전. 네이밍 규칙과 공용 머티리얼/텍스처 배치, 마스터 머티리얼 설계가 남음.
+
 ### 프로젝트 구조 정리
 
 - 역할별 폴더로 정리: `docs/`, `blender/`, `unreal/`.

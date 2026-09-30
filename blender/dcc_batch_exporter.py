@@ -151,6 +151,14 @@ def socket_record(mat, principled, socket_name, texture_dir, copied, warnings):
     return {"value": value}
 
 
+def socket_record_aliases(mat, principled, socket_names, texture_dir, copied, warnings,
+                          default_value):
+    for socket_name in socket_names:
+        if principled.inputs.get(socket_name) is not None:
+            return socket_record(mat, principled, socket_name, texture_dir, copied, warnings)
+    return {"value": default_value}
+
+
 class DCCExportRow(bpy.types.PropertyGroup):
     source_name: StringProperty(name="Source Object", options={'HIDDEN'})
     object_name: StringProperty(name="Export Name")
@@ -306,6 +314,14 @@ class DCCEXPORT_OT_export(bpy.types.Operator):
                                 "normal": socket_record(mat, principled, "Normal", texture_dir, copied_images, warnings),
                                 "roughness": socket_record(mat, principled, "Roughness", texture_dir, copied_images, warnings),
                                 "metallic": socket_record(mat, principled, "Metallic", texture_dir, copied_images, warnings),
+                                "emission_color": socket_record_aliases(
+                                    mat, principled, ("Emission Color", "Emission"),
+                                    texture_dir, copied_images, warnings, [0.0, 0.0, 0.0, 1.0],
+                                ),
+                                "emission_strength": socket_record_aliases(
+                                    mat, principled, ("Emission Strength",),
+                                    texture_dir, copied_images, warnings, 0.0,
+                                ),
                             }
                         duplicate.material_slots[slot_index].link = 'OBJECT'
                         duplicate.material_slots[slot_index].material = next(m for m in temp_materials if m.name == materials[mat.name]["name"])

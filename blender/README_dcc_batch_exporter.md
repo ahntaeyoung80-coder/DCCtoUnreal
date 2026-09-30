@@ -34,7 +34,7 @@ The `_SM` pair contains static meshes; the `_SK` pair contains meshes linked to 
 
 - Selected mesh objects only; collection export is not included yet. Static and armature-linked meshes are exported as separate FBX/JSON pairs. Armatures linked through parentage or Armature modifiers are included in the skeletal FBX.
 - Up to two FBX files per operation (one static and one skeletal); mesh objects remain separate in their FBX.
-- Principled BSDF only. Base Color, Normal, Roughness and Metallic are recorded as either a directly connected image (Normal Map nodes are followed to their image input) or the socket's constant value.
+- Principled BSDF only. Base Color, Normal, Roughness, Metallic, Emission Color and Emission Strength are recorded as either a directly connected image (Normal Map nodes are followed to their image input) or the socket's constant value.
 - Arbitrary node graphs, generated images, procedural textures, channel extraction, and texture baking are outside this first prototype. If a linked image file is missing or unreadable, export continues with that input recorded as `value: null`; the JSON `warnings` array records the material, input, image, and source path.
 - Exported names are previewed and editable. Original names are recorded in JSON for lookup.
 - Existing FBX/JSON files cause an error unless **Overwrite Existing Files** is enabled.
@@ -72,7 +72,7 @@ JSON은 각 메시의 원본 이름, Export 이름, 머티리얼 슬롯 순서�
 ### 현재 지원 범위
 
 - 선택한 오브젝트만 지원합니다. 컬렉션 내보내기는 아직 없습니다.
-- Principled BSDF의 Base Color, Normal, Roughness, Metallic 입력을 처리합니다. 직접 연결된 이미지와 상수값을 기록합니다. Normal Map 노드는 입력 이미지를 따라갑니다.
+- Principled BSDF의 Base Color, Normal, Roughness, Metallic, Emission Color, Emission Strength 입력을 처리합니다. 직접 연결된 이미지와 상수값을 기록합니다. Normal Map 노드는 입력 이미지를 따라갑니다.
 - 복잡한 노드 그래프, 절차적 텍스처, 채널 분리, 베이킹은 지원하지 않습니다.
 - 연결 이미지 파일을 찾지 못해도 내보내기는 계속합니다. 해당 입력을 빈 값으로 기록하고 JSON `warnings`에 누락 경로를 남깁니다.
 - 동일한 소스 이미지 파일은 한 번만 복사합니다.

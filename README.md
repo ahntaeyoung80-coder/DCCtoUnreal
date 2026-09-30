@@ -14,7 +14,9 @@ Blender에서 메시와 재질 정보를 내보내고 Unreal Editor에서 가져
 
 1. [Blender Exporter 안내](blender/README_dcc_batch_exporter.md)를 따라 `blender/dcc_batch_exporter.py`를 설치합니다.
 2. Blender에서 FBX/JSON을 내보냅니다.
-3. [Unreal Importer 안내](unreal/README_unreal_dcc_importer.md)를 읽고 Unreal Editor에서 머티리얼 생성 스크립트를 먼저 실행한 뒤 임포터를 실행합니다.
+3. [Unreal 도구 안내](unreal/README_unreal_dcc_importer.md)를 읽고 Unreal Editor에서 기본 템플릿 생성기를 실행한 뒤 임포터를 실행합니다.
+
+기본 템플릿 생성기는 기존 Unreal 프로젝트에 `/Game/Imports` 폴더와 `/Game/Materials/Master/MM_MasterSurface`를 만듭니다. 이미 있는 마스터 머티리얼 그래프는 그대로 둡니다. `.upack` 패키징은 이 스크립트의 범위가 아닙니다.
 
 이 도구는 현재 초기 프로토타입입니다. 실제 Blender/Unreal 프로젝트에서 실행 결과를 확인한 뒤 프로덕션 파일에 적용하세요.
 

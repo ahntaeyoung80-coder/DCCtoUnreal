@@ -20,7 +20,7 @@ import unreal
 # ---------------------------------------------------------------------------
 
 SOURCE_DIR = r"C:\Users\USER\ExportTest"
-DEST_ROOT = "/Game/DCC"
+DEST_ROOT = "/Game"
 
 # Additional Substance Painter export folders. SOURCE_DIR and its "textures"
 # subfolder are searched automatically as well. Add other absolute paths here.
@@ -33,21 +33,23 @@ MAP_SUFFIXES = {
     "normal": ("Normal", "Normal_OpenGL", "Normal_DirectX", "NormalGL", "NormalDX"),
     "roughness": ("Roughness", "Rough"),
     "metallic": ("Metallic", "Metalness", "Metal"),
+    "ao": ("AO", "AmbientOcclusion", "Ambient_Occlusion", "Occlusion"),
     "orm": ("ORM", "OcclusionRoughnessMetallic", "Occlusion_Roughness_Metallic"),
 }
 SPECIAL_MAP_SUFFIXES = {
     "SSS": ("SSS", "Subsurface", "SubsurfaceColor", "SubsurfaceMask"),
     "Opacity": ("Opacity", "OpacityMask", "Alpha", "Transparency"),
-    "Emissive": ("Emissive", "Emission"),
+    "EmissiveColor": ("EmissiveColor", "Emissive", "Emission"),
+    "EmissiveMask": ("EmissiveMask", "EmissionMask"),
 }
 TEXTURE_EXTENSIONS = (".png", ".tga", ".tif", ".tiff", ".exr", ".jpg", ".jpeg")
 
 # Optional path to an existing Skeleton asset, e.g.:
-# /Game/DCC/Inna/Skeletal/SKEL_Inna.SKEL_Inna
+# /Game/Imports/Inna/Meshes/SKEL_Inna.SKEL_Inna
 # Leave empty for the first import. The first imported skeletal asset creates it.
 SKELETON_PATH = ""
 
-MASTER_MATERIAL_PATH = "/Game/DCC/Shared/Materials/M_DCC_Master_v2"
+MASTER_MATERIAL_PATH = "/Game/Materials/Master/MM_MasterSurface"
 ASK_BEFORE_REPLACE = True
 
 
@@ -232,21 +234,28 @@ def find_substance_texture(record, role, manifest_path, suffixes=None):
 
 
 def resolve_material_textures(manifest_path, manifest):
-    """JSON texture refs win; missing refs fall back to Substance filename matching."""
+    """Resolve maps in the agreed order: ORM pack, Substance, Blender image."""
     result = {}
     for record in manifest["materials"]:
         name = record["name"]
         result[name] = {}
         for role in MAP_SUFFIXES:
             entry = record.get(role) or {}
-            path = source_file_for(manifest_path, entry.get("texture"))
-            if not path:
-                path = find_substance_texture(record, role, manifest_path)
-            result[name][role] = path
+            blender_path = source_file_for(manifest_path, entry.get("texture"))
+            substance_path = find_substance_texture(record, role, manifest_path)
+            result[name][role] = substance_path or blender_path
         result[name]["special_maps"] = {}
         for label, suffixes in SPECIAL_MAP_SUFFIXES.items():
             result[name]["special_maps"][label] = find_substance_texture(record, label, manifest_path, suffixes)
             result[name]["special_" + label.casefold()] = result[name]["special_maps"][label]
+        emission_entry = record.get("emission_color", {"value": [0.0, 0.0, 0.0, 1.0]})
+        blender_emission_path = source_file_for(manifest_path, emission_entry.get("texture"))
+        substance_emission_path = result[name]["special_emissivecolor"]
+        result[name]["emission_color_texture"] = substance_emission_path or blender_emission_path
+        result[name]["emission_color"] = emission_entry
+        result[name]["emission_strength"] = record.get(
+            "emission_strength", {"value": 0.0}
+        )
     return result
 
 
@@ -259,17 +268,32 @@ def import_textures(manifest, resolved_textures, texture_folder, replace_existin
     by_source = {}
     used_names = set()
     for mat in manifest["materials"]:
-        for role in list(MAP_SUFFIXES) + ["special_sss", "special_opacity", "special_emissive"]:
+        for role in list(MAP_SUFFIXES) + [
+            "special_sss", "special_opacity", "special_emissivecolor", "special_emissivemask"
+        ]:
             src = resolved_textures.get(mat["name"], {}).get(role)
+            if role == "special_emissivecolor":
+                src = resolved_textures.get(mat["name"], {}).get("emission_color_texture")
             if not src:
                 continue
-            key = os.path.normcase(os.path.abspath(src))
+            key = (os.path.normcase(os.path.abspath(src)), role)
             if key in by_source:
                 continue
             material_name = mat.get("source_name") or mat.get("name", "MI_Material")
             if material_name.startswith("MI_"):
                 material_name = material_name[3:]
-            suffix = role.title().replace("_", "")
+            suffix = {
+                "base_color": "BaseColor",
+                "normal": "Normal",
+                "roughness": "Roughness",
+                "metallic": "Metallic",
+                "ao": "AO",
+                "orm": "ORM",
+                "special_sss": "SSS",
+                "special_opacity": "OpacityMask",
+                "special_emissivecolor": "EmissiveColor",
+                "special_emissivemask": "EmissiveMask",
+            }.get(role, role.title().replace("_", ""))
             name = "T_{}_{}".format(clean_name(material_name), suffix)
             candidate, index = name, 2
             while candidate.casefold() in used_names:
@@ -285,11 +309,14 @@ def import_textures(manifest, resolved_textures, texture_folder, replace_existin
             if not texture:
                 warn("Texture import did not return Texture2D: " + src)
                 continue
-            # One source used for multiple roles: keep first import's role settings.
-            texture.set_editor_property("srgb", role == "base_color")
+            # Keep role-specific copies when one source image feeds multiple
+            # channels, because Unreal's sRGB and compression settings differ.
+            texture.set_editor_property(
+                "srgb", role in ("base_color", "special_emissivecolor")
+            )
             if role == "normal":
                 set_optional(texture, "compression_settings", unreal.TextureCompressionSettings.TC_NORMALMAP)
-            elif role in ("roughness", "metallic", "orm") or role.startswith("special_"):
+            elif role in ("roughness", "metallic", "ao", "orm") or role.startswith("special_"):
                 set_optional(texture, "compression_settings", unreal.TextureCompressionSettings.TC_MASKS)
             unreal.EditorAssetLibrary.save_loaded_asset(texture)
             by_source[key] = texture
@@ -298,7 +325,7 @@ def import_textures(manifest, resolved_textures, texture_folder, replace_existin
 
 def material_signature(record, resolved):
     values = {}
-    for role in ("base_color", "normal", "roughness", "metallic", "orm"):
+    for role in ("base_color", "normal", "roughness", "metallic", "ao", "orm"):
         entry = record.get(role) or {}
         value = entry.get("value")
         if isinstance(value, list):
@@ -309,7 +336,24 @@ def material_signature(record, resolved):
             os.path.normcase(os.path.abspath(path)) if path else None,
             None if path else value,
         )
+    values["emission_color"] = (record.get("emission_color") or {}).get("value")
+    values["emission_strength"] = (record.get("emission_strength") or {}).get("value")
+    for label, path in (
+        ("emissive_color_texture", resolved.get("emission_color_texture")),
+        ("emissive_mask", resolved.get("special_emissivemask")),
+    ):
+        values[label] = os.path.normcase(os.path.abspath(path)) if path else None
     return json.dumps(values, sort_keys=True, separators=(",", ":"))
+
+
+def set_static_switch(instance, name, enabled):
+    unreal.MaterialEditingLibrary.set_material_instance_static_switch_parameter_value(
+        instance,
+        name,
+        bool(enabled),
+        association=unreal.MaterialParameterAssociation.GLOBAL_PARAMETER,
+        update_material_instance=True,
+    )
 
 
 def create_material_instances(manifest, resolved_textures, texture_map, folder, master):
@@ -342,17 +386,26 @@ def create_material_instances(manifest, resolved_textures, texture_map, folder, 
 
         unreal.MaterialEditingLibrary.set_material_instance_parent(instance, master)
         unreal.MaterialEditingLibrary.clear_all_material_instance_parameters(instance)
+        set_static_switch(instance, "UseORMPack", False)
 
         for role, texture_param, scalar_param in (
             ("base_color", "BaseColorTexture", None),
             ("normal", "NormalTexture", None),
             ("roughness", "RoughnessTexture", "RoughnessValue"),
             ("metallic", "MetallicTexture", "MetallicValue"),
+            ("ao", "AOTexture", "AOValue"),
             ("orm", "ORMTexture", None),
+            ("special_emissivecolor", "EmissiveColorTexture", None),
+            ("special_emissivemask", "EmissiveMaskTexture", None),
         ):
             entry = record.get(role) or {}
             src = resolved_textures.get(canonical, {}).get(role)
-            key = os.path.normcase(os.path.abspath(src)) if src else None
+            if role == "special_emissivecolor":
+                src = resolved_textures.get(canonical, {}).get("emission_color_texture")
+            texture_role = role
+            if role == "special_emissivecolor":
+                texture_role = "special_emissivecolor"
+            key = (os.path.normcase(os.path.abspath(src)), texture_role) if src else None
             texture = texture_map.get(key) if key else None
             value = entry.get("value")
 
@@ -365,9 +418,7 @@ def create_material_instances(manifest, resolved_textures, texture_map, folder, 
                         instance, scalar_param, 1.0
                     )
                 if role == "orm":
-                    unreal.MaterialEditingLibrary.set_material_instance_scalar_parameter_value(
-                        instance, "ORMEnabled", 1.0
-                    )
+                    set_static_switch(instance, "UseORMPack", True)
             elif role == "base_color" and not src and isinstance(value, list) and len(value) >= 3:
                 color = unreal.LinearColor(float(value[0]), float(value[1]), float(value[2]),
                                            float(value[3]) if len(value) > 3 else 1.0)
@@ -378,7 +429,41 @@ def create_material_instances(manifest, resolved_textures, texture_map, folder, 
                 unreal.MaterialEditingLibrary.set_material_instance_scalar_parameter_value(
                     instance, scalar_param, float(value)
                 )
+            elif role == "ao" and not src and isinstance(value, (int, float)):
+                unreal.MaterialEditingLibrary.set_material_instance_scalar_parameter_value(
+                    instance, scalar_param, float(value)
+                )
             # No normal texture: leave the Master's neutral normal texture active.
+
+        emission_color = (record.get("emission_color") or {}).get("value")
+        emission_color_texture_path = resolved_textures.get(canonical, {}).get(
+            "emission_color_texture"
+        )
+        if emission_color_texture_path:
+            emission_color = [1.0, 1.0, 1.0, 1.0]
+        if isinstance(emission_color, list) and len(emission_color) >= 3:
+            color = unreal.LinearColor(
+                float(emission_color[0]), float(emission_color[1]), float(emission_color[2]),
+                float(emission_color[3]) if len(emission_color) > 3 else 1.0,
+            )
+            unreal.MaterialEditingLibrary.set_material_instance_vector_parameter_value(
+                instance, "EmissiveColor", color
+            )
+        emission_strength = (record.get("emission_strength") or {}).get("value")
+        if isinstance(emission_strength, (int, float)):
+            unreal.MaterialEditingLibrary.set_material_instance_scalar_parameter_value(
+                instance, "EmissiveStrength", float(emission_strength)
+            )
+        emissive_entry_color = emission_color if isinstance(emission_color, list) else []
+        has_emission = bool(
+            isinstance(emission_strength, (int, float)) and emission_strength > 0.0
+            and (
+                resolved_textures.get(canonical, {}).get("emission_color_texture")
+                or resolved_textures.get(canonical, {}).get("special_emissivemask")
+                or any(float(value) > 0.0 for value in emissive_entry_color[:3])
+            )
+        )
+        set_static_switch(instance, "UseEmissive", has_emission)
 
         unreal.MaterialEditingLibrary.update_material_instance(instance)
         unreal.EditorAssetLibrary.save_loaded_asset(instance)
@@ -424,13 +509,13 @@ def import_bundle(manifest_path, replace_existing, skeleton):
     master = unreal.EditorAssetLibrary.load_asset(MASTER_MATERIAL_PATH)
     if not master or not isinstance(master, unreal.Material):
         raise RuntimeError(
-            "Master material is missing: {}. Run unreal_dcc_material_builder.py "
+            "Master material is missing: {}. Run unreal_dcc_basic_template_generator.py "
             "once in this Unreal project first.".format(MASTER_MATERIAL_PATH)
         )
     kind = manifest["asset_type"]
     bundle = clean_name(manifest.get("asset_name", "Asset"))
-    root = DEST_ROOT + "/" + bundle
-    mesh_folder = root + ("/Static" if kind == "static" else "/Skeletal")
+    root = DEST_ROOT + "/Imports/" + bundle
+    mesh_folder = root + "/Meshes"
     mat_folder = root + "/Materials"
     tex_folder = root + "/Textures"
     for folder in (mesh_folder, mat_folder, tex_folder):
@@ -439,7 +524,10 @@ def import_bundle(manifest_path, replace_existing, skeleton):
     resolved_textures = resolve_material_textures(manifest_path, manifest)
     special_notices = []
     for record in manifest["materials"]:
-        found = [label for label, path in resolved_textures[record["name"]]["special_maps"].items() if path]
+        found = [
+            label for label in ("SSS", "Opacity")
+            if resolved_textures[record["name"]]["special_maps"].get(label)
+        ]
         if found:
             special_notices.append("{}: {}".format(record.get("source_name", record["name"]), ", ".join(found)))
     texture_map = import_textures(manifest, resolved_textures, tex_folder, replace_existing)
@@ -532,16 +620,16 @@ def run():
         skeleton = import_bundle(manifest_path, replace_existing, skeleton)
 
     special_found = any(
-        resolved_textures[record["name"]]["special_maps"][label]
+        resolved_textures[record["name"]]["special_maps"].get(label)
         for manifest_path in manifests
         for manifest, _fbx in [validate_manifest(manifest_path)]
         for resolved_textures in [resolve_material_textures(manifest_path, manifest)]
         for record in manifest["materials"]
-        for label in SPECIAL_MAP_SUFFIXES
+        for label in ("SSS", "Opacity")
     )
     summary = "Import finished."
     if special_found:
-        summary += " SSS/Opacity/Emissive maps were detected; see Output Log and configure them manually."
+        summary += " SSS/Opacity maps were detected but are not part of this background master material. See Output Log."
     summary += " Review the Output Log for warnings."
     unreal.EditorDialog.show_message(
         "DCC Import", summary,
