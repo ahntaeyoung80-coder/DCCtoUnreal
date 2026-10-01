@@ -67,3 +67,14 @@
 - ORM과 개별 Roughness/Metallic 맵 분기 방식 미정. 현재 프로토타입의 Multiply/Lerp 그래프는 최종안이 아님.
 - SSS, Opacity, Emissive의 향후 머티리얼/레이어 구조 미정.
 - 기존 코드 흐름은 실제 Unreal 프로젝트에서 재검증되지 않음.
+
+## 2026-10-01
+
+### 마스터 머티리얼 설계 세션 및 읽기 전용 그래프 보고서 계획
+
+- Unreal Engine 5.8.3에서 사용자가 `/Game/Materials/Master/MM_MasterSurface`를 직접 구성 중이며, 설계 검토 후에만 그래프 자동화를 반영하기로 재확인.
+- 목표는 임포터가 Material Instance 입력을 채우고, 초보자가 조작할 항목을 최소화하는 것. 파라미터는 임포터 인터페이스로 이름·그룹을 정리하며, 텍스처와 상수값은 곱하지 않고 Static Switch로 상호 배타 선택.
+- 임포터 입력 우선순위는 ORM Pack → Substance PBR → Blender 이미지 → Blender scalar → 마스터 기본값. ORM은 화면에서 R=AO, G=Roughness, B=Metallic으로 연결됨. 실제 익스포트 채널 배치와 맞는지 검증 필요.
+- 사용자는 다음 세션에서 UE Editor 안에서 실행할 읽기 전용 그래프 보고서 내보내기 스크립트를 만들기로 요청함. 노드·파라미터·머티리얼 설정·핀 연결을 기록하고 에셋은 수정하지 않는 범위.
+- 마지막 공유 그래프에서 NormalTexture에 `ERROR!`가 보여 중립 노멀 기본 텍스처 지정 및 컴파일 상태 확인이 남음.
+- UE 5.8.3의 `MaterialEditingLibrary`는 노드/핀 이름 및 연결 입력 조회 API를 제공함. 핀 단위 연결 정보의 완전한 추출 가능 여부는 실제 에디터에서 확인해야 함.
