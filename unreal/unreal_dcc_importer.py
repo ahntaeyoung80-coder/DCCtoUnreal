@@ -5,13 +5,15 @@ then run it inside Unreal Editor with Tools > Execute Python Script.
 
 Expected Blender exporter contract (schema 2):
   <Bundle>_SM.fbx + <Bundle>_SM.json
-  <Bundle>_SK.fbx + <Bundle>_SK.json
+  <Bundle>_SKM.fbx + <Bundle>_SKM.json
 
 """
 
+import ctypes
 import json
 import os
 import re
+import sys
 import unreal
 
 
@@ -19,11 +21,10 @@ import unreal
 # User configuration
 # ---------------------------------------------------------------------------
 
-SOURCE_DIR = r"C:\Users\USER\ExportTest"
 DEST_ROOT = "/Game"
 
-# Additional Substance Painter export folders. SOURCE_DIR and its "textures"
-# subfolder are searched automatically as well. Add other absolute paths here.
+# Additional Substance Painter export folders. The selected source folder and
+# its "textures/Substance" subfolder are searched automatically as well.
 SUBSTANCE_TEXTURE_DIRS = []
 
 # Substance output token aliases. ORM channel order follows the selected
@@ -97,16 +98,98 @@ def load_json(path):
 
 
 def discover_manifests():
-    if not os.path.isdir(SOURCE_DIR):
-        raise RuntimeError("Source folder does not exist: " + SOURCE_DIR)
-    manifests = [
-        os.path.join(SOURCE_DIR, name)
-        for name in sorted(os.listdir(SOURCE_DIR))
-        if name.endswith("_SM.json") or name.endswith("_SK.json")
-    ]
+    manifests = choose_manifest_files()
+    if manifests is None:
+        return None
     if not manifests:
-        raise RuntimeError("No *_SM.json or *_SK.json files in " + SOURCE_DIR)
+        raise RuntimeError("No supported manifest JSON files were selected.")
     return manifests
+
+
+def choose_manifest_files():
+    """Open one Explorer-style dialog to browse and multi-select manifests."""
+    if sys.platform != "win32":
+        raise RuntimeError(
+            "The manifest file picker currently requires Unreal Editor on Windows."
+        )
+
+    class OPENFILENAMEW(ctypes.Structure):
+        _fields_ = [
+            ("lStructSize", ctypes.c_uint),
+            ("hwndOwner", ctypes.c_void_p),
+            ("hInstance", ctypes.c_void_p),
+            ("lpstrFilter", ctypes.c_wchar_p),
+            ("lpstrCustomFilter", ctypes.c_wchar_p),
+            ("nMaxCustFilter", ctypes.c_uint),
+            ("nFilterIndex", ctypes.c_uint),
+            ("lpstrFile", ctypes.c_wchar_p),
+            ("nMaxFile", ctypes.c_uint),
+            ("lpstrFileTitle", ctypes.c_wchar_p),
+            ("nMaxFileTitle", ctypes.c_uint),
+            ("lpstrInitialDir", ctypes.c_wchar_p),
+            ("lpstrTitle", ctypes.c_wchar_p),
+            ("Flags", ctypes.c_uint),
+            ("nFileOffset", ctypes.c_ushort),
+            ("nFileExtension", ctypes.c_ushort),
+            ("lpstrDefExt", ctypes.c_wchar_p),
+            ("lCustData", ctypes.c_ssize_t),
+            ("lpfnHook", ctypes.c_void_p),
+            ("lpTemplateName", ctypes.c_wchar_p),
+            ("pvReserved", ctypes.c_void_p),
+            ("dwReserved", ctypes.c_uint),
+            ("FlagsEx", ctypes.c_uint),
+        ]
+
+    file_buffer = ctypes.create_unicode_buffer(32768)
+    title_buffer = ctypes.create_unicode_buffer(1024)
+    filters = ctypes.create_unicode_buffer("DCC manifests\0*_SM.json;*_SKM.json\0\0")
+    dialog = OPENFILENAMEW()
+    dialog.lStructSize = ctypes.sizeof(OPENFILENAMEW)
+    user32 = ctypes.windll.user32
+    user32.GetForegroundWindow.restype = ctypes.c_void_p
+    dialog.hwndOwner = user32.GetForegroundWindow()
+    dialog.lpstrFilter = ctypes.cast(filters, ctypes.c_wchar_p)
+    dialog.nFilterIndex = 1
+    dialog.lpstrFile = ctypes.cast(file_buffer, ctypes.c_wchar_p)
+    dialog.nMaxFile = len(file_buffer)
+    dialog.lpstrFileTitle = ctypes.cast(title_buffer, ctypes.c_wchar_p)
+    dialog.nMaxFileTitle = len(title_buffer)
+    dialog.lpstrInitialDir = os.path.expanduser("~")
+    dialog.lpstrTitle = "Choose DCC manifest JSON file(s) to import"
+    dialog.Flags = 0x00001000 | 0x00000800 | 0x00080000 | 0x00000200 | 0x00000004
+    # OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_EXPLORER |
+    # OFN_ALLOWMULTISELECT | OFN_HIDEREADONLY
+
+    comdlg32 = ctypes.windll.comdlg32
+    comdlg32.GetOpenFileNameW.argtypes = [ctypes.POINTER(OPENFILENAMEW)]
+    comdlg32.GetOpenFileNameW.restype = ctypes.c_int
+    if not comdlg32.GetOpenFileNameW(ctypes.byref(dialog)):
+        log("Manifest file selection cancelled.")
+        return None
+
+    # In Explorer multi-select mode, the buffer contains either one full path,
+    # or directory\0filename1\0filename2\0\0.
+    values = file_buffer[:]
+    first_end = values.find("\0")
+    if first_end < 0:
+        raise RuntimeError("Could not read selected manifest file paths.")
+    first = values[:first_end]
+    second_end = values.find("\0", first_end + 1)
+    second = values[first_end + 1:second_end] if second_end >= 0 else ""
+    if not second:
+        selected = [first]
+    else:
+        names = [name for name in values[first_end + 1:].split("\0") if name]
+        selected = [os.path.join(first, name) for name in names]
+
+    normalized = []
+    for path in selected:
+        path = os.path.abspath(path)
+        name = os.path.basename(path)
+        if not (name.endswith("_SM.json") or name.endswith("_SKM.json")):
+            raise RuntimeError("Unsupported manifest name: " + name)
+        normalized.append(path)
+    return sorted(set(normalized), key=str.casefold)
 
 
 def validate_manifest(path):
@@ -114,7 +197,7 @@ def validate_manifest(path):
     if data.get("schema_version") != 2:
         raise RuntimeError(
             "{} uses schema_version {}. This importer requires schema 2 and "
-            "separate _SM/_SK exports. Update the Blender exporter first."
+            "separate _SM/_SKM exports."
             .format(os.path.basename(path), data.get("schema_version"))
         )
     kind = data.get("asset_type")
@@ -128,7 +211,7 @@ def validate_manifest(path):
         raise RuntimeError("FBX listed by JSON is missing: " + fbx_path)
     if not isinstance(data.get("meshes"), list) or not isinstance(data.get("materials"), list):
         raise RuntimeError("JSON must contain meshes and materials arrays: " + path)
-    expected = "_SM" if kind == "static" else "_SK"
+    expected = "_SM" if kind == "static" else "_SKM"
     if not os.path.basename(path).startswith(clean_name(data.get("asset_name", "Asset")) + expected):
         warn("Manifest filename and asset_type suffix do not match: " + path)
     return data, fbx_path
@@ -178,9 +261,11 @@ def material_aliases(record):
 
 
 def texture_search_dirs(manifest_path):
+    """Return only locations reserved for Substance Painter output."""
+    source_dir = os.path.dirname(os.path.abspath(manifest_path))
     candidates = [
-        os.path.dirname(manifest_path),
-        os.path.join(os.path.dirname(manifest_path), "textures"),
+        os.path.join(source_dir, "textures", "Substance"),
+        os.path.join(source_dir, "Substance"),
     ] + list(SUBSTANCE_TEXTURE_DIRS)
     result = []
     seen = set()
@@ -194,13 +279,16 @@ def texture_search_dirs(manifest_path):
 
 
 def find_substance_texture(record, role, manifest_path, suffixes=None):
-    """Find a standalone SP map by material/texture-set name plus map suffix."""
+    """Find an SP map by material name and suffix, allowing a project prefix."""
     aliases = material_aliases(record)
-    expected = {}
+    expected = []
     for alias in aliases:
-        a = normalize_token(alias)
+        alias_tokens = re.findall(r"[a-z0-9]+", alias.casefold())
+        if not alias_tokens:
+            continue
         for suffix in (suffixes or MAP_SUFFIXES[role]):
-            expected.setdefault(a + normalize_token(suffix), (len(a), alias, suffix))
+            suffix_tokens = re.findall(r"[a-z0-9]+", suffix.casefold())
+            expected.append((alias_tokens + suffix_tokens, len(normalize_token(alias)), alias, suffix))
 
     matches = []
     for root in texture_search_dirs(manifest_path):
@@ -209,10 +297,16 @@ def find_substance_texture(record, role, manifest_path, suffixes=None):
                 ext = os.path.splitext(filename)[1].casefold()
                 if ext not in TEXTURE_EXTENSIONS:
                     continue
-                stem = normalize_token(os.path.splitext(filename)[0])
-                if stem in expected:
-                    alias_length, alias, suffix = expected[stem]
-                    matches.append((alias_length, filename, os.path.join(current, filename), alias, suffix))
+                stem_tokens = re.findall(
+                    r"[a-z0-9]+", os.path.splitext(filename)[0].casefold()
+                )
+                for expected_tokens, alias_length, alias, suffix in expected:
+                    if (len(stem_tokens) >= len(expected_tokens)
+                            and stem_tokens[-len(expected_tokens):] == expected_tokens):
+                        matches.append((
+                            alias_length, filename, os.path.join(current, filename), alias, suffix
+                        ))
+                        break
 
     if not matches:
         return None
@@ -269,7 +363,7 @@ def import_textures(manifest, resolved_textures, texture_folder, replace_existin
     used_names = set()
     for mat in manifest["materials"]:
         for role in list(MAP_SUFFIXES) + [
-            "special_sss", "special_opacity", "special_emissivecolor", "special_emissivemask"
+            "special_sss", "special_opacity", "special_emissivecolor"
         ]:
             src = resolved_textures.get(mat["name"], {}).get(role)
             if role == "special_emissivecolor":
@@ -292,7 +386,6 @@ def import_textures(manifest, resolved_textures, texture_folder, replace_existin
                 "special_sss": "SSS",
                 "special_opacity": "OpacityMask",
                 "special_emissivecolor": "EmissiveColor",
-                "special_emissivemask": "EmissiveMask",
             }.get(role, role.title().replace("_", ""))
             name = "T_{}_{}".format(clean_name(material_name), suffix)
             candidate, index = name, 2
@@ -340,7 +433,6 @@ def material_signature(record, resolved):
     values["emission_strength"] = (record.get("emission_strength") or {}).get("value")
     for label, path in (
         ("emissive_color_texture", resolved.get("emission_color_texture")),
-        ("emissive_mask", resolved.get("special_emissivemask")),
     ):
         values[label] = os.path.normcase(os.path.abspath(path)) if path else None
     return json.dumps(values, sort_keys=True, separators=(",", ":"))
@@ -386,81 +478,89 @@ def create_material_instances(manifest, resolved_textures, texture_map, folder, 
 
         unreal.MaterialEditingLibrary.set_material_instance_parent(instance, master)
         unreal.MaterialEditingLibrary.clear_all_material_instance_parameters(instance)
-        set_static_switch(instance, "UseORMPack", False)
+        resolved = resolved_textures.get(canonical, {})
 
-        for role, texture_param, scalar_param in (
-            ("base_color", "BaseColorTexture", None),
-            ("normal", "NormalTexture", None),
-            ("roughness", "RoughnessTexture", "RoughnessValue"),
-            ("metallic", "MetallicTexture", "MetallicValue"),
-            ("ao", "AOTexture", "AOValue"),
-            ("orm", "ORMTexture", None),
-            ("special_emissivecolor", "EmissiveColorTexture", None),
-            ("special_emissivemask", "EmissiveMaskTexture", None),
+        def imported_texture(role, source_key=None):
+            src = resolved.get(source_key or role)
+            key = (os.path.normcase(os.path.abspath(src)), role) if src else None
+            return texture_map.get(key) if key else None
+
+        def set_vector_if_valid(parameter_name, value):
+            if isinstance(value, (list, tuple)) and len(value) >= 3:
+                color = unreal.LinearColor(
+                    float(value[0]), float(value[1]), float(value[2]),
+                    float(value[3]) if len(value) > 3 else 1.0,
+                )
+                unreal.MaterialEditingLibrary.set_material_instance_vector_parameter_value(
+                    instance, parameter_name, color
+                )
+
+        def set_scalar_if_valid(parameter_name, value):
+            if isinstance(value, (int, float)):
+                unreal.MaterialEditingLibrary.set_material_instance_scalar_parameter_value(
+                    instance, parameter_name, float(value)
+                )
+
+        # Base Color: texture when present, otherwise the vector fallback.
+        base_color_texture = imported_texture("base_color")
+        if base_color_texture:
+            unreal.MaterialEditingLibrary.set_material_instance_texture_parameter_value(
+                instance, "BaseColorTexture", base_color_texture
+            )
+        set_vector_if_valid("BaseColorScalar", (record.get("base_color") or {}).get("value"))
+        set_static_switch(instance, "UseBaseColorTexture", bool(base_color_texture))
+
+        # Normal has a neutral texture default in the master; only override it
+        # when a source texture was imported successfully.
+        normal_texture = imported_texture("normal")
+        if normal_texture:
+            unreal.MaterialEditingLibrary.set_material_instance_texture_parameter_value(
+                instance, "NormalTexture", normal_texture
+            )
+
+        # ORM is a shared path for AO, Roughness and Metallic. Without it, each
+        # channel independently selects its own texture or scalar fallback.
+        orm_texture = imported_texture("orm")
+        if orm_texture:
+            unreal.MaterialEditingLibrary.set_material_instance_texture_parameter_value(
+                instance, "ORMTexture", orm_texture
+            )
+        set_static_switch(instance, "UseORMPack", bool(orm_texture))
+
+        for role, texture_param, scalar_param, switch_param in (
+            ("ao", "AOTexture", "AOValue", "UseUnpackedAO"),
+            ("roughness", "RoughnessTexture", "RoughnessValue", "UseUnpackedRoughness"),
+            ("metallic", "MetallicTexture", "MetallicValue", "UseUnpackedMetallic"),
         ):
-            entry = record.get(role) or {}
-            src = resolved_textures.get(canonical, {}).get(role)
-            if role == "special_emissivecolor":
-                src = resolved_textures.get(canonical, {}).get("emission_color_texture")
-            texture_role = role
-            if role == "special_emissivecolor":
-                texture_role = "special_emissivecolor"
-            key = (os.path.normcase(os.path.abspath(src)), texture_role) if src else None
-            texture = texture_map.get(key) if key else None
-            value = entry.get("value")
-
+            texture = imported_texture(role)
             if texture:
                 unreal.MaterialEditingLibrary.set_material_instance_texture_parameter_value(
                     instance, texture_param, texture
                 )
-                if scalar_param:
-                    unreal.MaterialEditingLibrary.set_material_instance_scalar_parameter_value(
-                        instance, scalar_param, 1.0
-                    )
-                if role == "orm":
-                    set_static_switch(instance, "UseORMPack", True)
-            elif role == "base_color" and not src and isinstance(value, list) and len(value) >= 3:
-                color = unreal.LinearColor(float(value[0]), float(value[1]), float(value[2]),
-                                           float(value[3]) if len(value) > 3 else 1.0)
-                unreal.MaterialEditingLibrary.set_material_instance_vector_parameter_value(
-                    instance, "BaseColorColor", color
-                )
-            elif role in ("roughness", "metallic") and not src and isinstance(value, (int, float)):
-                unreal.MaterialEditingLibrary.set_material_instance_scalar_parameter_value(
-                    instance, scalar_param, float(value)
-                )
-            elif role == "ao" and not src and isinstance(value, (int, float)):
-                unreal.MaterialEditingLibrary.set_material_instance_scalar_parameter_value(
-                    instance, scalar_param, float(value)
-                )
-            # No normal texture: leave the Master's neutral normal texture active.
+            set_scalar_if_valid(scalar_param, (record.get(role) or {}).get("value"))
+            set_static_switch(instance, switch_param, bool(texture))
 
-        emission_color = (record.get("emission_color") or {}).get("value")
-        emission_color_texture_path = resolved_textures.get(canonical, {}).get(
-            "emission_color_texture"
+        # Emissive color uses its own texture/fallback switch and an outer
+        # enable switch. The current master graph has no emissive-mask input.
+        emissive_texture = imported_texture(
+            "special_emissivecolor", "emission_color_texture"
         )
-        if emission_color_texture_path:
-            emission_color = [1.0, 1.0, 1.0, 1.0]
-        if isinstance(emission_color, list) and len(emission_color) >= 3:
-            color = unreal.LinearColor(
-                float(emission_color[0]), float(emission_color[1]), float(emission_color[2]),
-                float(emission_color[3]) if len(emission_color) > 3 else 1.0,
+        if emissive_texture:
+            unreal.MaterialEditingLibrary.set_material_instance_texture_parameter_value(
+                instance, "EmissiveColorTexture", emissive_texture
             )
-            unreal.MaterialEditingLibrary.set_material_instance_vector_parameter_value(
-                instance, "EmissiveColor", color
-            )
+        emission_color = (record.get("emission_color") or {}).get("value")
+        set_vector_if_valid("EmissiveColor", emission_color)
+        set_static_switch(instance, "UseEmissiveTexture", bool(emissive_texture))
+
         emission_strength = (record.get("emission_strength") or {}).get("value")
-        if isinstance(emission_strength, (int, float)):
-            unreal.MaterialEditingLibrary.set_material_instance_scalar_parameter_value(
-                instance, "EmissiveStrength", float(emission_strength)
-            )
-        emissive_entry_color = emission_color if isinstance(emission_color, list) else []
+        set_scalar_if_valid("EmissiveStrength", emission_strength)
+        color_values = emission_color if isinstance(emission_color, (list, tuple)) else []
         has_emission = bool(
             isinstance(emission_strength, (int, float)) and emission_strength > 0.0
             and (
-                resolved_textures.get(canonical, {}).get("emission_color_texture")
-                or resolved_textures.get(canonical, {}).get("special_emissivemask")
-                or any(float(value) > 0.0 for value in emissive_entry_color[:3])
+                emissive_texture
+                or any(float(value) > 0.0 for value in color_values[:3])
             )
         )
         set_static_switch(instance, "UseEmissive", has_emission)
@@ -535,7 +635,7 @@ def import_bundle(manifest_path, replace_existing, skeleton):
         manifest, resolved_textures, texture_map, mat_folder, master
     )
 
-    destination_name = "SK_" + bundle if kind == "skeletal" else None
+    destination_name = "SKM_" + bundle if kind == "skeletal" else None
     meshes = import_task(
         fbx_path, mesh_folder, make_fbx_options(kind, skeleton),
         destination_name, replace_existing,
@@ -583,16 +683,11 @@ def import_bundle(manifest_path, replace_existing, skeleton):
 
 def run():
     manifests = discover_manifests()
+    if manifests is None:
+        return
     # Validate every JSON/FBX pair before importing any of them.
-    bundle_names = set()
     for path in manifests:
-        data, _fbx = validate_manifest(path)
-        bundle_names.add(clean_name(data.get("asset_name", "Asset")))
-    if len(bundle_names) != 1:
-        raise RuntimeError(
-            "Use one source folder per bundle/character. Found multiple asset_name values: "
-            + ", ".join(sorted(bundle_names))
-        )
+        validate_manifest(path)
 
     existing = unreal.EditorAssetLibrary.list_assets(
         DEST_ROOT, recursive=True, include_folder=False
@@ -610,14 +705,20 @@ def run():
             return
         replace_existing = True
 
-    skeleton = None
+    shared_skeleton = None
     if SKELETON_PATH:
-        skeleton = unreal.EditorAssetLibrary.load_asset(SKELETON_PATH)
-        if not skeleton:
+        shared_skeleton = unreal.EditorAssetLibrary.load_asset(SKELETON_PATH)
+        if not shared_skeleton:
             raise RuntimeError("Skeleton asset not found: " + SKELETON_PATH)
 
+    skeleton_by_bundle = {}
     for manifest_path in manifests:
-        skeleton = import_bundle(manifest_path, replace_existing, skeleton)
+        manifest, _fbx = validate_manifest(manifest_path)
+        bundle = clean_name(manifest.get("asset_name", "Asset"))
+        skeleton = skeleton_by_bundle.get(bundle, shared_skeleton)
+        skeleton_by_bundle[bundle] = import_bundle(
+            manifest_path, replace_existing, skeleton
+        )
 
     special_found = any(
         resolved_textures[record["name"]]["special_maps"].get(label)

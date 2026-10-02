@@ -145,6 +145,37 @@
 
 ## 2026-10-02
 
+### Unreal 임포터 선택 흐름 및 최신 마스터 구조 반영
+
+- 임포터는 실행할 때마다 Windows 폴더 선택 창을 열고, 선택한 폴더에서 `_SM.json` / `_SKM.json` manifest를 하나 이상 고르는 방식으로 정리. FBX는 선택한 JSON의 `fbx` 경로에서 읽고, 선택한 묶음별로 `/Game/Imports/<BundleName>/{Meshes,Materials,Textures}`에 저장.
+- 이 세션 범위는 Unreal 임포터와 관련 안내/체크포인트만. Blender 익스포터의 `_SK` → `_SKM` 변경은 별도 세션에서 반영하기로 함. 임포터의 스켈레탈 에셋명 접두사도 `SKM_`로 지정.
+- Substance 출력은 `<ExportFolder>/textures/Substance/`에서 찾고, `<Project>_<Material>_<Map>` 파일명에서 프로젝트 접두사를 무시해 manifest 머티리얼 이름과 맵 접미사를 매칭. 동일한 역할 후보가 여럿이면 모호성 경고 후 하위 우선순위 소스를 사용.
+- 최신 마스터 그래프 파라미터명에 맞춰 Base Color, ORM, 개별 AO/Roughness/Metallic, Emissive texture/fallback Switch와 값을 설정. Metallic Switch는 사용자가 수정한 `UseUnpackedMetallic`으로 간주. 현재 그래프에 없는 Emissive Mask 파라미터 자동 할당은 제거.
+- Unreal Editor 안에서 대화상자, UE Python의 Windows ctypes 호출, 머티리얼 파라미터와 FBX 임포트의 실제 실행 확인은 아직 안 함. 사용자의 UE 5.8 프로젝트에서 실행 확인이 다음 단계.
+
+### Skeletal 파일 접미사 임시 조정
+
+- 현재 테스트 에셋이 `_SK` 규칙이므로 임포터가 `_SK` manifest/FBX 쌍을 읽고 Unreal 메시 이름에 `SK_` 접두사를 쓰도록 변경. 향후 네이밍 확정에 따라 다시 조정 가능.
+- Unreal의 **Execute Python Script** 파일 선택 창은 Unreal이 띄우며 임포터 내부 소스 폴더 선택과 별도임을 확인. 임포터는 그 다음 매번 소스 폴더 선택과 manifest 다중 선택 창을 띄움. 첫 스크립트 선택 단계까지 없애려면 별도 실행 진입점이 필요.
+
+### 소스 경로와 manifest 선택 창 통합
+
+- 기존 폴더 대화상자 후 파일 선택 대화상자를 여는 두 단계가 불필요하다는 사용자 피드백을 반영. Windows 파일 탐색기 스타일 다중 선택 창 하나에서 소스 폴더로 이동하고 `_SM` / `_SK` manifest를 고르도록 통합.
+- Unreal **Execute Python Script**가 여는 임포터 스크립트 선택 창은 그대로 유지되며, 위 통합은 임포터가 여는 선택 창에 적용.
+
+### Unreal Editor 첫 스켈레탈 임포트 로그 검토
+
+- 사용자가 제공한 UE 로그에서 `Inna_SK.fbx` 번역/임포트 완료와 `/Game/Imports/Inna/Meshes/SK_Inna`, `SK_Inna_Skeleton` 저장을 확인. 30개 텍스처와 9개 Material Instance도 저장됐고 총 41개 에셋 검증이 완료됨. Python traceback이나 임포터 중단은 없음.
+- Material Instance마다 기존 경로 `load_asset` 실패가 `LogEditorAssetSubsystem: Error`로 9회 출력된 뒤 생성·저장됨. 결과는 성공했지만 없는 에셋을 조회하는 정상 흐름이 Error 레벨로 보여 로그를 불필요하게 길게 함. 존재 여부 확인 후 로드하도록 개선 필요.
+- Skeletal FBX는 약 44초 만에 임포트됐으나 `Root_Skeleton` bind pose가 유효하지 않아 UE가 time-zero pose로 skinning을 재결합했다는 경고가 있음. 메시 포즈/변형과 머티리얼 슬롯은 에디터에서 시각 확인 필요.
+- 콘텐츠 검증은 41개를 처리하고 표시된 9개 validator에서 실패 수 0. 295개 shader compile job도 모두 완료. 로그만으로 최종 외관/변형 품질까지 확인한 것은 아님.
+
+### Skeletal 네이밍 복귀 및 다음 설계 범위
+
+- 테스트 파일이 `_SK`였던 임포트 프로토타입 실행 결과를 확인한 뒤, 다음 공유 규칙을 위해 임포터 계약을 `_SKM` manifest/FBX와 `SKM_` 에셋 접두사로 다시 맞춤. Blender 익스포터는 이번 세션 범위가 아니므로 현재 `_SK` 상태이며 후속 세션에서 임포터에 맞춰 변경.
+- 사용자는 프로토타입을 만족스럽게 평가. Material Instance에서 Static Switch를 끄면 비활성 경로의 하위 파라미터가 숨고 조작되지 않는 동작을 의도한 작업자 UI로 받아들임.
+- Blender 애드온은 단순 접미사 변경을 넘어 임포터의 입력/폴더/파일 계약에 맞춰 개편 필요. Opacity 및 SSS 머티리얼을 지금 지원할지 이후 단계로 미룰지는 설계 논의가 남음. 다음 세션은 범위 설계부터 시작.
+
 ### 마스터 머티리얼 설계 확정 및 임포터 단계 전환
 
 - 사용자가 최종 MM_MasterSurface 화면을 검토하고, 작업자/임포터가 조작할 슬롯과 파라미터 구성을 정리한 뒤 임포터 개발로 넘어가기로 함.
