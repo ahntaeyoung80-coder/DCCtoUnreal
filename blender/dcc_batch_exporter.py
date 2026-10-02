@@ -31,9 +31,11 @@ def is_skinned_mesh(obj):
 
 def object_export_name(obj, row_name):
     name = clean_name(row_name)
-    prefix = "SK_" if is_skinned_mesh(obj) else "SM_"
-    if name.startswith(("SM_", "SK_")):
-        name = name[3:]
+    prefix = "SKM_" if is_skinned_mesh(obj) else "SM_"
+    for old_prefix in ("SKM_", "SK_", "SM_"):
+        if name.startswith(old_prefix):
+            name = name[len(old_prefix):]
+            break
     return prefix + name
 
 
@@ -244,7 +246,7 @@ class DCCEXPORT_OT_export(bpy.types.Operator):
         for kind, members in groups.items():
             if not members:
                 continue
-            suffix = "_SM" if kind == "static" else "_SK"
+            suffix = "_SM" if kind == "static" else "_SKM"
             output_pairs.append((
                 os.path.join(out_dir, stem + suffix + ".fbx"),
                 os.path.join(out_dir, stem + suffix + ".json"),
@@ -270,7 +272,7 @@ class DCCEXPORT_OT_export(bpy.types.Operator):
             for kind, members in groups.items():
                 if not members:
                     continue
-                suffix = "_SM" if kind == "static" else "_SK"
+                suffix = "_SM" if kind == "static" else "_SKM"
                 fbx_path = os.path.join(out_dir, stem + suffix + ".fbx")
                 json_path = os.path.join(out_dir, stem + suffix + ".json")
                 materials = {}
@@ -373,9 +375,9 @@ class DCCEXPORT_OT_export(bpy.types.Operator):
             if previous_active and previous_active.name in bpy.data.objects:
                 context.view_layer.objects.active = previous_active
         if warnings:
-            self.report({'WARNING'}, f"Exported {exported_count} mesh(es) into separate SM/SK FBX files; {len(warnings)} texture reference(s) were omitted. See JSON warnings.")
+            self.report({'WARNING'}, f"Exported {exported_count} mesh(es) into separate SM/SKM FBX files; {len(warnings)} texture reference(s) were omitted. See JSON warnings.")
         else:
-            self.report({'INFO'}, f"Exported {exported_count} mesh(es) into separate SM/SK FBX files")
+            self.report({'INFO'}, f"Exported {exported_count} mesh(es) into separate SM/SKM FBX files")
         return {'FINISHED'}
 
 

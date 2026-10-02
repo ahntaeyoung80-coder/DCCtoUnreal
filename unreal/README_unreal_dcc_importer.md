@@ -44,7 +44,6 @@ The report contains node classes and labels, pin names, pin connections from the
 
 - The Blender exporter currently records supported Principled BSDF inputs and copies linked image files into the export `textures/` folder. Unsupported node graphs and procedural baking remain outside its scope.
 - Each run opens one Explorer-style multi-select file picker filtered to schema-version-2 `_SM` / `_SKM` manifest JSON files. Browse to the export folder and select manifests there; the FBX is read from each selected JSON.
-- The current Blender exporter still emits `_SK`; update its naming in the planned Blender add-on session before using skeletal exports with this importer.
 - Existing destination assets trigger a replacement prompt. Review the Output Log for missing or ambiguous texture warnings.
 - This is an initial Unreal Engine 5.8 Python draft. One user-provided editor log confirms a skeletal import and 41-asset validation, but the mesh deformation and material appearance still need visual review before production use.
 
@@ -94,6 +93,5 @@ Content Browser에서 Material 에셋 하나만 선택하고 **Tools → Execute
 
 - Blender 익스포터는 지원하는 Principled BSDF 입력과 연결 이미지 파일을 기록합니다. 지원하지 않는 노드 그래프와 절차적 베이킹은 아직 범위 밖입니다.
 - 임포터는 실행할 때마다 단일 파일 선택 창을 열며, 여기서 소스 폴더로 이동하고 가져올 schema version 2의 `_SM` / `_SKM` JSON을 선택합니다. 각 JSON에 적힌 FBX를 함께 가져옵니다.
-- 현재 Blender 익스포터의 `_SK` 출력은 향후 별도 애드온 정리 세션에서 `_SKM`으로 맞춰야 합니다.
 - 대상 폴더에 기존 에셋이 있으면 덮어쓰기 확인 창이 나옵니다. 텍스처 누락·모호성은 Output Log에서 확인하세요.
 - Unreal Engine 5.8 Python 초기 초안입니다. 사용자가 제공한 로그에서 스켈레탈 임포트와 41개 에셋 검증을 확인했지만, 메시 변형과 머티리얼 외관은 에디터에서 시각 확인이 필요합니다.

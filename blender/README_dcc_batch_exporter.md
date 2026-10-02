@@ -14,7 +14,7 @@ If your Blender build does not expose Install from Disk for add-ons, use **Prefe
 
 1. Select the mesh objects to export.
 2. In **DCC Export**, set **FBX File Name** and the output folder, then click **Refresh Selected Meshes**. This name is used for the FBX and matching JSON bundle; individual mesh names are controlled separately in the preview.
-3. Review and edit each Export Name. The preview includes the final prefix: `SM_` for static meshes and `SK_` for meshes parented to an Armature or using an Armature modifier.
+3. Review and edit each Export Name. The preview includes the final prefix: `SM_` for static meshes and `SKM_` for meshes parented to an Armature or using an Armature modifier.
 4. Use the selection/frame button in a row to locate that source object in the viewport.
 5. Click **Export FBX + JSON**.
 
@@ -23,12 +23,12 @@ The FBX File Name is the shared bundle name. The add-on separates the selected o
 ```text
 <Bundle>_SM.fbx
 <Bundle>_SM.json
-<Bundle>_SK.fbx
-<Bundle>_SK.json
+<Bundle>_SKM.fbx
+<Bundle>_SKM.json
 textures/
 ```
 
-The `_SM` pair contains static meshes; the `_SK` pair contains meshes linked to armatures and their armatures. Empty groups are omitted. Both JSON files use schema version 2 and include `asset_type`. Per-mesh names remain separate inside each FBX. Referenced image files are copied into the shared `textures/` directory and JSON stores relative paths. Blender source object and material names are not changed. Material names in the manifest receive an `MI_` prefix.
+The `_SM` pair contains static meshes; the `_SKM` pair contains meshes linked to armatures and their armatures. Empty groups are omitted. Both JSON files use schema version 2 and include `asset_type`. Per-mesh names remain separate inside each FBX. Referenced image files are copied into the shared `textures/` directory and JSON stores relative paths. Blender source object and material names are not changed. Material names in the manifest receive an `MI_` prefix.
 
 ## Current scope and limitations
 
@@ -56,14 +56,14 @@ The `_SM` pair contains static meshes; the `_SK` pair contains meshes linked to 
 
 1. 내보낼 메시 오브젝트를 선택합니다.
 2. **FBX File Name**과 출력 폴더를 정하고 **Refresh Selected Meshes**를 누릅니다. FBX File Name은 출력 묶음의 이름이며 개별 메시 이름과는 별개입니다.
-3. 미리보기에서 각 메시의 Export 이름을 확인하거나 수정합니다. 정적 메시에는 `SM_`, Armature에 연결된 메시에는 `SK_`가 붙습니다. 행의 선택 버튼은 뷰포트에서 해당 원본 메시를 찾아줍니다.
+3. 미리보기에서 각 메시의 Export 이름을 확인하거나 수정합니다. 정적 메시에는 `SM_`, Armature에 연결된 메시에는 `SKM_`가 붙습니다. 행의 선택 버튼은 뷰포트에서 해당 원본 메시를 찾아줍니다.
 4. **Export FBX + JSON**을 누릅니다.
 
 선택한 메시 종류에 따라 다음 파일을 최대 두 쌍 만듭니다. 해당 종류의 메시가 없으면 그 쌍은 생략합니다.
 
 ```text
 <묶음이름>_SM.fbx / <묶음이름>_SM.json
-<묶음이름>_SK.fbx / <묶음이름>_SK.json
+<묶음이름>_SKM.fbx / <묶음이름>_SKM.json
 textures/
 ```
 

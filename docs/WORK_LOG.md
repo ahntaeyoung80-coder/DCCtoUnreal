@@ -145,6 +145,14 @@
 
 ## 2026-10-02
 
+### Blender 스켈레탈 명칭 정렬 및 다음 설계 인계
+
+- 사용자가 SSS/Opacity는 우선 배제하고 Blender 스켈레탈 명칭을 임포터 계약에 맞추기로 결정함.
+- 익스포터 메시 접두사를 `SK_`에서 `SKM_`으로, 스켈레탈 FBX/manifest 접미사를 `_SK`에서 `_SKM`으로 변경. 사용자가 미리보기에서 입력한 기존 `SK_` 이름도 접두사 중복 없이 정규화.
+- Blender 안내서의 출력 규칙을 갱신하고 Unreal 임포터 안내서에서 이전 `_SK` 미지원 메모를 제거.
+- HANDOFF를 현재 상태와 바로 다음 단계 중심으로 정리. 다음 세션은 SSS/Opacity 표면 방식, 텍스처/파라미터, 임포터 Material Instance 설정 범위를 설계한 뒤 머티리얼 제작으로 진행.
+- SSS/Opacity 구현은 시작하지 않음. Python Blender 런타임 및 Unreal Editor에서의 실제 출력/임포트 검증은 사용자 환경에서 후속 확인 필요.
+
 ### Unreal 임포터 선택 흐름 및 최신 마스터 구조 반영
 
 - 임포터는 실행할 때마다 Windows 폴더 선택 창을 열고, 선택한 폴더에서 `_SM.json` / `_SKM.json` manifest를 하나 이상 고르는 방식으로 정리. FBX는 선택한 JSON의 `fbx` 경로에서 읽고, 선택한 묶음별로 `/Game/Imports/<BundleName>/{Meshes,Materials,Textures}`에 저장.
